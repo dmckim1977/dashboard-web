@@ -1,0 +1,257 @@
+/**
+ * GEXRay Chart Styles
+ */
+
+/* UI Controls */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #2196F3;
+}
+
+input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+.chart-wrapper {
+  width: 100%;
+  height: 100%;
+  padding: 15px;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Make sure Highcharts doesn't overlap the header */
+.highcharts-container {
+  z-index: 1 !important;
+}
+
+/* Loading animation */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Custom colors for series */
+/* Zero Gamma line (yellow) */
+.highcharts-series-0 .highcharts-point,
+.highcharts-series-0 .highcharts-graph {
+  fill: yellow;
+  stroke: yellow;
+}
+
+/* Major Positive Volume (green) */
+.highcharts-series-1 .highcharts-point,
+.highcharts-series-1 .highcharts-graph {
+  fill: green;
+  stroke: green;
+}
+
+/* Major Negative Volume (red) */
+.highcharts-series-2 .highcharts-point,
+.highcharts-series-2 .highcharts-graph {
+  fill: red;
+  stroke: red;
+}
+
+/* Minor Positive Volume (light green) */
+.highcharts-series-3 .highcharts-point,
+.highcharts-series-3 .highcharts-graph {
+  fill: green;
+  stroke: green;
+  fill-opacity: 0.3;
+  stroke-opacity: 0.3;
+}
+
+/* Minor Negative Volume (light red) */
+.highcharts-series-4 .highcharts-point,
+.highcharts-series-4 .highcharts-graph {
+  fill: red;
+  stroke: red;
+  fill-opacity: 0.3;
+  stroke-opacity: 0.3;
+}
+
+/* Volume series */
+.highcharts-series-5 .highcharts-point-up,
+.highcharts-series-5 .highcharts-point-positive {
+  fill: #28a745;
+}
+
+.highcharts-series-5 .highcharts-point-down,
+.highcharts-series-5 .highcharts-point-negative {
+  fill: #dc3545;
+}
+
+/* Flag styles */
+/* Puts Bearish Flags */
+.highcharts-series-7 .highcharts-point {
+  fill: rgba(220, 53, 69, 0.3);
+  stroke: #dc3545;
+}
+
+/* Puts Bullish Flags */
+.highcharts-series-8 .highcharts-point {
+  fill: rgba(253, 126, 20, 0.3);
+  stroke: #fd7e14;
+}
+
+/* Calls Bearish Flags */
+.highcharts-series-9 .highcharts-point {
+  fill: rgba(108, 117, 125, 0.3);
+  stroke: #6c757d;
+}
+
+/* Calls Bullish Flags */
+.highcharts-series-10 .highcharts-point {
+  fill: rgba(40, 167, 69, 0.3);
+  stroke: #28a745;
+}
+
+/* Make sure flags have white text */
+.highcharts-flags-series text {
+  fill: white !important;
+}
+
+/* Candlestick styling for light mode */
+.highcharts-light .highcharts-candlestick-series .highcharts-point-down {
+  fill: #e12626;  /* Darker red for bearish candles */
+  stroke: #e12626;
+}
+
+.highcharts-light .highcharts-candlestick-series .highcharts-point-up {
+  fill: white;  /* White fill for bullish candles */
+  stroke: #22ab22;  /* Green border for bullish candles */
+}
+
+//* Candlestick styling for light mode */
+.highcharts-light .highcharts-candlestick-series .highcharts-point-down {
+  fill: #000000;  /* Solid black for bearish candles */
+  stroke: #000000;
+}
+
+.highcharts-light .highcharts-candlestick-series .highcharts-point-up {
+  fill: white;  /* White/hollow fill for bullish candles */
+  stroke: #000000;  /* Black border for bullish candles */
+}
+
+/* Candlestick styling for dark mode */
+.highcharts-dark .highcharts-candlestick-series .highcharts-point-down {
+  fill: #ffffff;  /* Solid white for bearish candles in dark mode */
+  stroke: #ffffff;
+}
+
+.highcharts-dark .highcharts-candlestick-series .highcharts-point-up {
+  fill: #222431;  /* Dark background fill for bullish candles (matching background) */
+  stroke: #ffffff;  /* White border for bullish candles */
+}
+
+/* Fallback styling if no theme class is applied */
+.highcharts-candlestick-series .highcharts-point-down {
+  fill: #000000;
+  stroke: #000000;
+}
+
+.highcharts-candlestick-series .highcharts-point-up {
+  fill: white;
+  stroke: #000000;
+}
+
+/* Dark mode styles for page elements */
+body.dark-mode {
+  background-color: #222431;
+  color: white;
+}
+
+body.dark-mode .header-container,
+body.dark-mode #chart-title {
+  color: white;
+}
+
+body.dark-mode select,
+body.dark-mode button {
+  color: white;
+  background-color: #333;
+  border-color: #444;
+}
+
+body.dark-mode #connection-button {
+  background-color: #333;
+  border-color: #444;
+}
+
+body.dark-mode label {
+  color: white;
+}
+
+body.dark-mode .error-message {
+  color: #ff6b6b;
+}
+
+/* Responsive styles */
+@media screen and (max-width: 768px) {
+  .header-container {
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .selectors-container {
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  .selector {
+    width: 100%;
+    margin-bottom: 5px;
+  }
+
+  #ticker-select {
+    width: 100%;
+  }
+
+  .chart-container-wrapper {
+    height: calc(100vh - 100px);
+  }
+}
+
+/* Add these styles to your CSS */
+.highcharts-tooltip {
+    filter: drop-shadow(0 0 5px rgba(0,0,0,0.2));
+    z-index: 1000;
+}
+
+.highcharts-tooltip table {
+    margin: 4px 0;
+}
+
+.highcharts-tooltip table td {
+    padding: 2px 5px;
+    white-space: nowrap;
+}
+
+/* For dark mode compatibility */
+.dark-mode .highcharts-tooltip {
+    color: #f0f0f0;
+    background-color: rgba(30, 30, 30, 0.85) !important;
+    border-color: #444;
+}
+
+.dark-mode .highcharts-tooltip hr {
+    border-color: #444;
+}

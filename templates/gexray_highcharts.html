@@ -1,0 +1,1190 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Steamroom | Gexray V2 Beta</title>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+
+  <!--  THIS IS AN IMPORT THAT I NEED TO CHANGE-->
+  <!--    <link rel="stylesheet" href="/static/css/gexray-highcharts.css">-->
+  <link rel="stylesheet" href="/dashboard-web/static/css/gexray-highcharts.css">
+
+  <!-- Make sure these are included in the right order -->
+  <link rel="stylesheet" href="https://code.highcharts.com/css/highcharts.css">
+  <link rel="stylesheet" type="text/css" href="https://code.highcharts.com/css/stocktools/gui.css">
+    <link rel="stylesheet" type="text/css" href="https://code.highcharts.com/css/annotations/popup.css">
+
+    <script src="https://code.highcharts.com/highcharts.js"></script>
+    <script src="https://code.highcharts.com/stock/modules/stock.js"></script>
+    <script src="https://code.highcharts.com/stock/indicators/indicators-all.js"></script>
+    <script src="https://code.highcharts.com/modules/drag-panes.js"></script>
+    <script src="https://code.highcharts.com/modules/annotations-advanced.js"></script>
+    <script src="https://code.highcharts.com/modules/price-indicator.js"></script>
+    <script src="https://code.highcharts.com/modules/full-screen.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highcharts/10.3.3/modules/data.js"></script>
+
+</head>
+<body>
+
+<div class="container-fluid">
+
+<!--THIS IS THE TOP SECTION OF THE TEMPLATE FILE.-->
+<!--    {% block content %}-->
+<!--  ##################################################################################-->
+
+
+<!--  ################################################################################-->
+<!--THIS STARTS THE CONTENT THAT WILL BE IN THE INDIVIDUAL PAGE TO IMPORT THE TEMPLATE.-->
+<!--{% extends "shared/dashboard_layout.html" %}-->
+<!--{% block content %}-->
+<!--THEN THE PAGE CONTENT BEGINS HERE-->
+
+
+<div class="chart-wrapper">
+  <!-- Fixed header container with higher z-index -->
+  <div class="header-container" style="display: flex; justify-content: space-between; flex-wrap: wrap; margin-bottom: 15px; position: relative; z-index: 10;">
+    <div style="display: flex; align-items: center; gap: 15px;">
+      <h3 id="chart-title" style="margin: 0; ">GEXRay 2.0</h3>
+      <button id="connection-button" style="border: 1px solid #444; border-radius: 4px; padding: 8px 12px; cursor: pointer; font-weight: bold; display: flex; align-items: center; gap: 8px;">
+        <span id="connection-indicator" style="display: inline-block; width: 10px; height: 10px; border-radius: 50%;"></span>
+        <span id="connection-text">Initializing</span>
+      </button>
+    </div>
+
+    <div class="selectors-container" style="display: flex; gap: 15px; align-items: center;">
+      <div class="selector" style="display: flex; align-items: center; gap: 10px;">
+        <label for="ticker-select" style="font-weight: bold;">Ticker:</label>
+        <select id="ticker-select" style="min-width: 100px; padding: 8px; border-radius: 4px;"></select>
+      </div>
+
+        <div class="selector" style="display: flex; align-items: center; gap: 10px;">
+          <label for="minor-walls" style="font-weight: bold;">Minor Walls:</label>
+          <select id="minor-walls" style="min-width: 120px; padding: 8px; border-radius: 4px;">
+            <option value="show">Show</option>
+            <option value="hide">Hide</option>
+          </select>
+        </div>
+
+        <div class="theme-toggle" style="display: flex; align-items: center; gap: 10px; margin-left: 15px;">
+          <span style="font-size: 14px;">☀️</span>
+          <label class="switch" style="position: relative; display: inline-block; width: 40px; height: 20px;">
+            <input type="checkbox" id="theme-toggle">
+            <span class="slider round" style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 20px;"></span>
+          </label>
+          <span style="font-size: 14px;">🌙</span>
+        </div>
+    </div>
+  </div>
+
+  <!-- Wrapper div for chart to keep layout stable -->
+  <div class="chart-container-wrapper" style="position: relative; height: calc(100vh - 80px);">
+    <div id="container" style="width: 100%; height: 100%; min-width: 310px;"></div>
+  </div>
+
+  <!-- Hidden status message (we'll use the button instead) -->
+  <div id="connection-status" style="display: none;">Initializing...</div>
+</div>
+
+
+<script>
+  <!--  THIS IS A SECTION FOR CONSTANTS THAT WILL MAKE IT EASIER FOR ME TO MAKE THE CHANGES WHEN I CONVERT THE CODE-->
+  const apiURL = 'https://api-auth.davidmckim.workers.dev/api/v2/gexray/tickers';
+  const historicalDataApi = 'https://api-auth.davidmckim.workers.dev/api/v2/gexray/chart-1min-candles';
+
+
+// Main chart script
+document.addEventListener('DOMContentLoaded', function() {
+    // Chart reference
+    let chart;
+    console.log('Starting chart')
+
+    // SSE variables
+    let source = null;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    const retryDelay = 1000; // Base delay in milliseconds
+    let lastMessageTimestamp = null;
+
+    // Current selected ticker
+    let currentTicker = '';
+
+    // Data arrays
+    let candles = [],
+        zero_gamma = [],
+        major_pos = [],
+        major_neg = [],
+        volume = [],
+        minor_pos = [],
+        minor_neg = [];
+
+    // Wiseguy flag data arrays
+    let putsBearishFlags = [],
+        putsBullishFlags = [],
+        callsBearishFlags = [],
+        callsBullishFlags = [];
+
+    // Debug flag
+    const DEBUG = true;
+
+    // Handle window resize to reflow the chart
+    window.addEventListener('resize', function() {
+        if (chart) {
+            chart.reflow();
+        }
+    });
+
+    // Initialize ticker selector
+    function initSelectors() {
+        const tickerSelect = document.getElementById('ticker-select');
+        updateStatus('Loading tickers...');
+
+        // Load tickers from API
+        fetch(apiURL)
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.tickers && Array.isArray(data.tickers)) {
+                    // Sort tickers alphabetically
+                    const sortedTickers = data.tickers.sort();
+
+                    // Clear any existing options
+                    tickerSelect.innerHTML = '';
+
+                    // Add default option
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = 'SPY';
+                    defaultOption.textContent = '-- Select Ticker --';
+                    tickerSelect.appendChild(defaultOption);
+
+                    // Add options
+                    sortedTickers.forEach(ticker => {
+                        const option = document.createElement('option');
+                        option.value = ticker;
+                        option.textContent = ticker;
+                        tickerSelect.appendChild(option);
+                    });
+
+                    updateStatus('Ready - Select a ticker');
+                } else {
+                    console.error('Invalid ticker data format from API');
+                    updateStatus('Error loading tickers', true);
+
+                    // Add default option if API fails
+                    tickerSelect.innerHTML = '<option value="">No tickers available</option>';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching ticker list:', error);
+                updateStatus('Error loading tickers', true);
+
+                // Add default option if API fails
+                tickerSelect.innerHTML = '<option value="">Error loading tickers</option>';
+            });
+
+        // Handle ticker change
+        tickerSelect.addEventListener('change', function() {
+            const newTicker = this.value;
+            if (newTicker && newTicker !== currentTicker) {
+                // console.log(`Changing ticker from ${currentTicker} to ${newTicker}`);
+                currentTicker = newTicker;
+
+                // Update chart title
+                document.getElementById('chart-title').textContent = `${currentTicker} GEXRay V2`;
+
+                // Reset data arrays and fetch data
+                resetDataArrays();
+                fetchChartData();
+                fetchWiseguyFlags();
+
+                // Update status to show we're now listening for the new ticker
+                updateStatus(`Connected - Streaming ${currentTicker} data`);
+            }
+        });
+
+        // Initialize the additional selectors right here, before the function ends
+        initAdditionalSelectors();
+    }
+
+    // Handle flag position selector
+    function initAdditionalSelectors() {
+        // Check if flag-position exists
+        const flagPositionSelect = document.getElementById('flag-position');
+        const minorWallsSelect = document.getElementById('minor-walls');
+
+        // Flag position change handler
+        if (flagPositionSelect) {
+            flagPositionSelect.addEventListener('change', function() {
+                const newPosition = this.value;
+
+                if (chart) {
+                    // Update each flag series with new position
+                    const flagSeries = [
+                        chart.get('puts-bearish-flags'),
+                        chart.get('puts-bullish-flags'),
+                        chart.get('calls-bearish-flags'),
+                        chart.get('calls-bullish-flags')
+                    ];
+
+                    flagSeries.forEach(series => {
+                        if (series) {
+                            // Save current data
+                            const currentData = series.userOptions.data;
+
+                            // Update series options
+                            const updatedOptions = {
+                                onSeries: newPosition === 'on-series' ? 'dataseries' : undefined,
+                                yAxis: newPosition === 'volume-pane' ? 1 : 0
+                            };
+
+                            // Apply the changes
+                            series.update(updatedOptions, false);
+
+                            // Make sure data is preserved
+                            series.setData(currentData, false);
+                        }
+                    });
+
+                    // Redraw chart after all updates are complete
+                    chart.redraw();
+
+                    // console.log(`Flag position changed to: ${newPosition}`);
+                }
+            });
+        }
+
+        // Minor walls visibility handler
+        if (minorWallsSelect) {
+            minorWallsSelect.addEventListener('change', function() {
+                const showMinorWalls = this.value === 'show';
+
+                if (chart) {
+                    // Find the minor wall series
+                    const minorPosVolSeries = chart.series.find(s => s.name === 'Call Wall Minor');
+                    const minorNegVolSeries = chart.series.find(s => s.name === 'Put Wall Minor');
+
+                    // Update visibility
+                    if (minorPosVolSeries) {
+                        minorPosVolSeries.setVisible(showMinorWalls, false);
+                    }
+
+                    if (minorNegVolSeries) {
+                        minorNegVolSeries.setVisible(showMinorWalls, false);
+                    }
+
+                    // Redraw chart
+                    chart.redraw();
+
+                    // console.log(`Minor walls visibility set to: ${showMinorWalls ? 'visible' : 'hidden'}`);
+                }
+            });
+        }
+    }
+
+    // Reset data arrays
+    function resetDataArrays() {
+        candles = [];
+        zero_gamma = [];
+        major_pos = [];
+        major_neg = [];
+        volume = [];
+        minor_pos = [];
+        minor_neg = [];
+
+        // Reset flag arrays
+        putsBearishFlags = [];
+        putsBullishFlags = [];
+        callsBearishFlags = [];
+        callsBullishFlags = [];
+    }
+
+    // Status update function
+    function updateStatus(status, isError = false) {
+        // Update hidden status element
+        const statusElement = document.getElementById('connection-status');
+        statusElement.textContent = status;
+
+        // Don't update button text with chart creation status
+        // Only update for connection status changes
+        if (status.includes('Connected') ||
+            status.includes('Disconnected') ||
+            status.includes('Connecting') ||
+            status.includes('Reconnecting')) {
+
+            updateConnectionButton(status, isError);
+        }
+    }
+
+    function updateConnectionButton(status, isError = false) {
+        const buttonText = document.getElementById('connection-text');
+        const indicator = document.getElementById('connection-indicator');
+
+        // Shorten status for button display
+        let shortStatus = status;
+        if (status.includes('Connected')) {
+            shortStatus = 'Connected';
+        } else if (status.includes('Connecting')) {
+            shortStatus = 'Connecting';
+        } else if (status.includes('Error')) {
+            shortStatus = 'Error';
+        } else if (status.includes('Reconnecting')) {
+            shortStatus = 'Reconnecting';
+        } else if (status.includes('Disconnected')) {
+            shortStatus = 'Disconnected';
+        }
+
+        buttonText.textContent = shortStatus;
+
+        // Update indicator color
+        if (isError) {
+            indicator.style.backgroundColor = '#dc3545'; // red
+        } else if (status.toLowerCase().includes('connected')) {
+            indicator.style.backgroundColor = '#28a745'; // green
+        } else if (status.toLowerCase().includes('disconnected')) {
+            indicator.style.backgroundColor = '#dc3545'; // red
+        } else {
+            indicator.style.backgroundColor = '#007bff'; // blue
+        }
+    }
+
+    // Create a function to update the button with the timestamp
+    function updateConnectionTimestamp(timestamp) {
+        const buttonText = document.getElementById('connection-text');
+        const formattedTime = new Date(timestamp).toLocaleTimeString();
+        buttonText.textContent = `Connected • ${formattedTime}`;
+    }
+
+    // Fetch wiseguy flags
+    function fetchWiseguyFlags() {
+        if (!currentTicker) return;
+
+        // console.log(`Fetching wiseguy flags for ${currentTicker}`);
+
+        // Use your original API endpoint
+        fetch(`/api/v1/wiseguy_alerts/wiseguy-flags/${currentTicker}`)
+            .then(response => response.json())
+            .then(data => {
+                // console.log('Sample flag data structure:',
+                    data.puts_bearish && data.puts_bearish.length > 0 ?
+                    data.puts_bearish[0] : 'No sample data available';
+
+                // Assign flag data - keep it simple with just x, title, and text properties
+                putsBearishFlags = (data.puts_bearish || []).map(flag => ({
+                    x: flag.x,  // timestamp in milliseconds
+                    title: 'P', // title for flag
+                    text: flag.text || '' // full alert text for tooltip
+                }));
+
+                putsBullishFlags = (data.puts_bullish || []).map(flag => ({
+                    x: flag.x,
+                    title: 'P',
+                    text: flag.text || ''
+                }));
+
+                callsBearishFlags = (data.calls_bearish || []).map(flag => ({
+                    x: flag.x,
+                    title: 'C',
+                    text: flag.text || ''
+                }));
+
+                callsBullishFlags = (data.calls_bullish || []).map(flag => ({
+                    x: flag.x,
+                    title: 'C',
+                    text: flag.text || ''
+                }));
+
+                // If chart already exists, update the flag series
+                if (chart) {
+                    updateFlagSeries();
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching wiseguy flags:', error);
+            });
+    }
+
+     // Update flag series in existing chart
+    function updateFlagSeries() {
+                            // Find and update the puts bearish flags series
+        let putsBearishSeries = chart.get('puts-bearish-flags');
+        if (putsBearishSeries) {
+            putsBearishSeries.setData(putsBearishFlags, true, true, true);
+        }
+
+        // Find and update the puts bullish flags series
+        let putsBullishSeries = chart.get('puts-bullish-flags');
+        if (putsBullishSeries) {
+            putsBullishSeries.setData(putsBullishFlags, true, true, true);
+        }
+
+        // Find and update the calls bearish flags series
+        let callsBearishSeries = chart.get('calls-bearish-flags');
+        if (callsBearishSeries) {
+            callsBearishSeries.setData(callsBearishFlags, true, true, true);
+        }
+
+        // Find and update the calls bullish flags series
+        let callsBullishSeries = chart.get('calls-bullish-flags');
+        if (callsBullishSeries) {
+            callsBullishSeries.setData(callsBullishFlags, true, true, true);
+        }
+
+        // Force redraw
+        chart.redraw();
+    }
+
+    // Fetch chart data
+    function fetchChartData() {
+    updateStatus(`Loading data for ${currentTicker}...`);
+
+    // console.log(`Fetching data for ${currentTicker}`);
+
+    // Fetch data from our API - restored from your original code
+    fetch(historicalDataApi + '/' + `${currentTicker}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! Status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(chartData => {
+            // Access the nested candles array
+            const candles = chartData.data?.candles || [];
+            const major_pos = chartData.data?.major_pos || [];
+            const minor_pos = chartData.data?.minor_pos || [];
+            const major_neg = chartData.data?.major_neg || [];
+            const minor_neg = chartData.data?.minor_neg || [];
+            const zero_gamma = chartData.data?.zero_gamma || [];
+            const volume = chartData.data?.volume || [];
+
+            if (!chartData.data || !candles || candles.length === 0) {
+                console.error('No valid candles data received.');
+                console.log('Sample historical candle:', candles[0]);
+                updateStatus(`No data available for ${currentTicker}`, true);
+                createChart(); // Create empty chart
+                return;
+            }
+
+            // Log sample of data to verify format
+            // console.log(`Candles data received: ${candles.length} items`);
+            // console.log('Sample candles:', candles.slice(0, 3));
+
+            // Create chart with the data
+            createChart(candles, major_pos, minor_pos, major_neg, minor_neg, zero_gamma, volume);
+
+            // If we have data, fetch wiseguy flags
+            fetchWiseguyFlags();
+
+            // Update status
+            updateStatus(`Chart created for ${currentTicker}`);
+        })
+        .catch(error => {
+            console.error('Error fetching candle data:', error);
+            updateStatus(`Error loading chart data: ${error.message}`, true);
+
+            // Create chart anyway with empty data
+            createChart();
+        });
+}
+
+    // Initialize SSE connection - call this once on page load
+    function initSSEConnection() {
+        updateStatus('Connecting to live feed...');
+
+        // Close existing connection if any
+        if (source) {
+            source.close();
+        }
+
+        source = new EventSource('https://sse.sweet-forest-e367.workers.dev/sse/gexray');
+
+        source.onopen = () => {
+            updateStatus('Connected - Live data streaming');
+            reconnectAttempts = 0;
+            console.log('SSE connection opened, ready to receive data');
+        };
+
+        source.onmessage = handleSSEMessage;
+
+        source.onerror = handleSSEError;
+    }
+
+    // Handle SSE messages - filters by current ticker
+    function handleSSEMessage(event) {
+        try {
+            // if (DEBUG) console.log("Received SSE message:", event.data);
+            const eventData = JSON.parse(event.data);
+
+            // Store current time as last message timestamp
+            lastMessageTimestamp = new Date();
+
+            // Update the connection button with the timestamp
+            updateConnectionTimestamp(lastMessageTimestamp);
+
+            // Check for the correct message type
+            if ((eventData.msg_type === "gex3") && eventData.data) {
+                const data = eventData.data;
+
+                // Log data for debugging
+                if (DEBUG && data && eventData.ticker) {
+                    console.log(`Message ticker: ${eventData.ticker}, Current ticker: ${currentTicker}`);
+                }
+
+                // Only process data if we have a ticker selected
+                if (!currentTicker) {
+                    if (DEBUG) console.log("No ticker selected, ignoring data");
+                    return;
+                }
+
+                // Case-insensitive ticker matching
+                if (eventData.ticker && eventData.ticker.toUpperCase() === currentTicker.toUpperCase()) {
+                    console.log(`Processing ${currentTicker} data point`);
+                    // Update data arrays with new values
+                    updateChartWithLiveData(data);
+                } else if (DEBUG) {
+                    console.log(`Ignoring data for ticker ${eventData.ticker}, waiting for ${currentTicker}`);
+                }
+            }
+        } catch (error) {
+            console.error('Error processing SSE message:', error, event.data);
+        }
+    }
+
+    // Function to update chart with live data
+    function updateChartWithLiveData(data) {
+    // Make sure we have a chart
+    if (!chart) {
+        console.warn('Chart not initialized yet, cannot update');
+        return;
+    }
+
+    try {
+        // Process the incoming data
+        if (DEBUG) console.log('Processing incoming data:', data);
+
+        // Parse the timestamp (first element in each array)
+        const timestamp = data.candles ? data.candles[0] * 1000 : null; // Convert to milliseconds
+
+        if (!timestamp) {
+            console.error('Invalid timestamp in data:', data);
+            return;
+        }
+
+        // Format the candle data if available
+        if (data.candles && data.candles.length >= 5) {
+            // Find the candles series
+            const candleSeries = chart.get('dataseries');
+            if (candleSeries) {
+                // Find existing point index
+                const existingPointIndex = candleSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    // For candlestick series, we need to update OHLC values specifically
+                    candleSeries.data[existingPointIndex].update({
+                        open: data.candles[1],
+                        high: data.candles[2],
+                        low: data.candles[3],
+                        close: data.candles[4]
+                    }, false);
+                } else {
+                    // Add new point as array format for addPoint
+                    candleSeries.addPoint([
+                        timestamp,           // x (time)
+                        data.candles[1],     // open
+                        data.candles[2],     // high
+                        data.candles[3],     // low
+                        data.candles[4]      // close
+                    ], false);
+                }
+            }
+        }
+
+        // Update Zero Gamma series
+        if (data.zero_gamma && data.zero_gamma.length >= 2) {
+            const zeroGammaSeries = chart.get('zero-gamma-series');
+
+            if (zeroGammaSeries) {
+                // Find existing point index
+                const existingPointIndex = zeroGammaSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    // Update y value
+                    zeroGammaSeries.data[existingPointIndex].update({
+                        y: data.zero_gamma[1]
+                    }, false);
+                } else {
+                    // Add new point
+                    zeroGammaSeries.addPoint([timestamp, data.zero_gamma[1]], false);
+                }
+            }
+        }
+
+        // Update Major Pos series
+        if (data.major_pos && data.major_pos.length >= 2) {
+            const majorPosSeries = chart.get('major-pos-series');
+
+            if (majorPosSeries) {
+                const existingPointIndex = majorPosSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    majorPosSeries.data[existingPointIndex].update({
+                        y: data.major_pos[1]
+                    }, false);
+                } else {
+                    majorPosSeries.addPoint([timestamp, data.major_pos[1]], false);
+                }
+            }
+        }
+
+        // Update Major Neg series
+        if (data.major_neg && data.major_neg.length >= 2) {
+            const majorNegSeries = chart.get('major-neg-series');
+
+            if (majorNegSeries) {
+                const existingPointIndex = majorNegSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    majorNegSeries.data[existingPointIndex].update({
+                        y: data.major_neg[1]
+                    }, false);
+                } else {
+                    majorNegSeries.addPoint([timestamp, data.major_neg[1]], false);
+                }
+            }
+        }
+
+        // Update Minor Pos series
+        if (data.minor_pos && data.minor_pos.length >= 2) {
+            const minorPosSeries = chart.get('minor-pos-series');
+
+            if (minorPosSeries) {
+                const existingPointIndex = minorPosSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    minorPosSeries.data[existingPointIndex].update({
+                        y: data.minor_pos[1]
+                    }, false);
+                } else {
+                    minorPosSeries.addPoint([timestamp, data.minor_pos[1]], false);
+                }
+            }
+        }
+
+        // Update Minor Neg series
+        if (data.minor_neg && data.minor_neg.length >= 2) {
+            const minorNegSeries = chart.get('minor-neg-series');
+
+            if (minorNegSeries) {
+                const existingPointIndex = minorNegSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    minorNegSeries.data[existingPointIndex].update({
+                        y: data.minor_neg[1]
+                    }, false);
+                } else {
+                    minorNegSeries.addPoint([timestamp, data.minor_neg[1]], false);
+                }
+            }
+        }
+
+        // Update Volume series (if available)
+        if (data.volume && data.volume.length >= 2) {
+            const volumeSeries = chart.get('volume-series');
+
+            if (volumeSeries) {
+                const existingPointIndex = volumeSeries.data.findIndex(p => p.x === timestamp);
+
+                if (existingPointIndex >= 0) {
+                    volumeSeries.data[existingPointIndex].update({
+                        y: data.volume[1]
+                    }, false);
+                } else {
+                    volumeSeries.addPoint([timestamp, data.volume[1]], false);
+                }
+            }
+        }
+
+        // Redraw the chart once with all updates
+        chart.redraw();
+
+        // Auto-scroll if we were already at the most recent data
+        const xAxis = chart.xAxis[0];
+        const wasViewingLatest = (xAxis.max >= xAxis.dataMax - (30 * 1000)); // within 30 seconds
+
+        if (wasViewingLatest) {
+            // Adjust the view to show the latest data
+            xAxis.setExtremes(
+                null,  // Keep the current minimum
+                xAxis.dataMax,
+                true,  // Redraw
+                false  // No animation
+            );
+        }
+
+        if (DEBUG) console.log(`Updated chart with data point at ${new Date(timestamp).toLocaleString()}`);
+    } catch (error) {
+        console.error('Error updating chart with live data:', error);
+    }
+}
+
+    // Handle SSE errors and reconnection
+    function handleSSEError(error) {
+        console.error('SSE connection error:', error);
+        updateStatus('Connection issue - attempting to reconnect', true);
+        source.close();
+
+        if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            const delay = retryDelay * Math.pow(2, reconnectAttempts - 1);
+            setTimeout(initSSEConnection, delay);
+            updateStatus(`Reconnecting... (Attempt ${reconnectAttempts}/${maxReconnectAttempts})`, true);
+        } else {
+            updateStatus('Connection failed. Data updates paused.', true);
+        }
+    }
+
+    // Close SSE connection
+    function closeSseConnection() {
+        if (source) {
+            source.close();
+            source = null;
+            updateStatus('Disconnected', true);
+        }
+    }
+
+    // Create the Highcharts instance
+    function createChart(candlesData = [], majorPosData = [], minorPosData = [], majorNegData = [], minorNegData = [], zeroGammaData = [], volumeData = []) {
+        // If chart exists, destroy it first
+        if (chart) {
+            chart.destroy();
+        }
+
+        try {
+            chart = Highcharts.stockChart('container', {
+                chart: {
+                    styledMode: true,
+                    animation: false,
+                    panKey: 'shift',
+                    panning: {type: 'xy', pinchType: 'xy'},
+                    zooming: {
+                        type: 'xy',
+                        pinchType: 'xy'
+                    }
+                },
+                time: {
+                    useUTC: false // Use local time for better timestamp handling
+                },
+                xAxis: {
+                    type: 'datetime',
+                    ordinal: true,
+                    crosshair: true
+                },
+                yAxis: [
+                    {
+                        labels: {
+                            align: 'left',
+                        },
+                        height: '80%',
+                        resize: { enabled: true },
+                        crosshair: true,
+                        title: {
+                            text: 'Price & Levels',
+                        },
+                    },
+                    {
+                        labels: {
+                            align: 'left',
+                        },
+                        top: '80%',
+                        height: '20%',
+                        offset: 0,
+                    }
+                ],
+                rangeSelector: {
+                    selected: 4,
+                    buttons: [
+                        {type: 'minute', count: 5, text: '5m'},
+                        {type: 'minute', count: 15, text: '15m'},
+                        {type: 'hour', count: 1, text: '1h'},
+                        {type: 'hour', count: 4, text: '4h'},
+                        {type: 'all', text: 'All'}
+                    ],
+                },
+                navigator: {
+                    adaptToUpdatedData: true,
+                },
+                tooltip: {
+                    shared: true,
+                    crosshairs: [true, true],
+                    shape: 'square',
+                    followTouchMove: true,
+                    positioner: function() {
+                        // Position in the top left corner with some padding
+                        return { x: 10, y: 10 };
+                    },
+                    // Ensure tooltip always stays in the top left
+                    useHTML: true,
+                    backgroundColor: 'rgba(247,247,247,0.85)', // Semi-transparent background
+                    borderWidth: 1,
+                    style: {
+                        padding: '10px'
+                    },
+                    headerFormat: '<span style="font-size: 10px">{point.key}</span><table>',
+                    pointFormat: '<tr><td style="color: {series.color}; padding: 2px">{series.name}: </td>' +
+                        '<td style="padding: 2px"><b>{point.y}</b></td></tr>',
+                    footerFormat: '</table>',
+                    valueDecimals: 2,
+                    // Keep tooltip visible as long as crosshair is active
+                    hideDelay: 100,
+                    // Enable all series to show in tooltip
+                    formatter: function() {
+                        // Extract all visible points at this timestamp
+                        const dateStr = Highcharts.dateFormat('%a %b %e, %H:%M:%S', this.x);
+
+                        // Start with header
+                        let tooltipHTML = `<b>${dateStr}</b><br/><table>`;
+
+                        // Show candle data if possible
+                        if (this.points.find(p => p.series.type === 'candlestick')) {
+                            const candlePoint = this.points.find(p => p.series.type === 'candlestick');
+                            if (candlePoint && candlePoint.point) {
+                                const candle = candlePoint.point;
+                                tooltipHTML += `<tr><td colspan="2"><b>Candle Data:</b></td></tr>`;
+                                tooltipHTML += `<tr><td>O:</td><td style="text-align: right">${candle.open.toFixed(2)}</td></tr>`;
+                                tooltipHTML += `<tr><td>H:</td><td style="text-align: right">${candle.high.toFixed(2)}</td></tr>`;
+                                tooltipHTML += `<tr><td>L:</td><td style="text-align: right">${candle.low.toFixed(2)}</td></tr>`;
+                                tooltipHTML += `<tr><td>C:</td><td style="text-align: right">${candle.close.toFixed(2)}</td></tr>`;
+                                tooltipHTML += `<tr><td colspan="2"><hr/></td></tr>`;
+                            }
+                        }
+
+                        // Add each series point
+                        this.points.forEach(point => {
+                            // Skip flags in the tooltip to avoid cluttering
+                            if (point.series.type !== 'flags' && point.series.type !== 'candlestick') {
+                                tooltipHTML += `<tr>
+                                    <td><span style="color:${point.series.color}">${point.series.name}: </span></td>
+                                    <td style="text-align: right"><b>${point.y ? point.y.toFixed(2) : 'N/A'}</b></td>
+                                </tr>`;
+                            }
+                        });
+
+                        // Add any flags that exist at this point
+                        const flags = this.points.filter(p => p.series.type === 'flags');
+                        if (flags.length > 0) {
+                            tooltipHTML += `<tr><td colspan="2"><hr/></td></tr>`;
+                            tooltipHTML += `<tr><td colspan="2"><b>Flags:</b></td></tr>`;
+
+                            flags.forEach(flag => {
+                                if (flag.point && flag.point.text) {
+                                    tooltipHTML += `<tr>
+                                        <td><span style="color:${flag.series.color}">${flag.series.name}: </span></td>
+                                        <td>${flag.point.text}</td>
+                                    </tr>`;
+                                }
+                            });
+                        }
+
+                        tooltipHTML += '</table>';
+                        return tooltipHTML;
+                    }
+                },
+                plotOptions: {
+                    series: {
+                        turboThreshold: 0 // Disable threshold for large datasets
+                    },
+                    scatter: {
+                        marker: {
+                            radius: 2,
+                            symbol: 'circle'
+                        }
+                    },
+                    flags: {
+                        allowOverlapX: false,
+                        shape: 'squarepin',
+                        width: 16,
+                        style: {
+                            fontSize: '10px',
+                            fontWeight: 'bold'
+                        },
+                        // This is important - it defines how to render the flags
+                        // including max height, distance from each other, etc.
+                        heightPercentage: 30,
+                        maximumWidth: 20,
+                        stackDistance: 10 // Distance between flags when stacked
+                    }
+                },
+                series: [
+                    {
+                        type: 'scatter',
+                        id: 'zero-gamma-series',
+                        name: 'Zero Gamma',
+                        data: zeroGammaData,
+                        color: 'yellow',
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'scatter',
+                        id: 'major-pos-series',
+                        name: 'Call Wall Major',
+                        data: majorPosData,
+                        color: 'green',
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'scatter',
+                        id: 'major-neg-series',
+                        name: 'Put Wall Major',
+                        data: majorNegData,
+                        color: 'red',
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'scatter',
+                        id: 'minor-pos-series',
+                        name: 'Call Wall Minor',
+                        data: minorPosData,
+                        color: 'green',
+                        opacity: 0.3,
+                        visible: document.getElementById('minor-walls').value === 'show',
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'scatter',
+                        id: 'minor-neg-series',
+                        name: 'Put Wall Minor',
+                        data: minorNegData,
+                        color: 'red',
+                        visible: document.getElementById('minor-walls').value === 'show',
+                        opacity: 0.3,
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'column',
+                        id: 'volume-series',
+                        name: 'Net GEX',
+                        data: volumeData,
+                        yAxis: 1,
+                        color: '#28a745',
+                        negativeColor: '#dc3545',
+                        enableMouseTracking: true
+                    },
+                    {
+                        type: 'candlestick',
+                        id: 'dataseries',
+                        name: 'OHLC',
+                        data: candlesData,
+                        enableMouseTracking: true
+                    },
+                    // Flag series for wiseguy alerts - CORRECTED
+                    {
+                        type: 'flags',
+                        id: 'puts-bearish-flags',
+                        name: 'P',
+                        data: putsBearishFlags,
+                        color: '#dc3545', // red
+                        style: {color: 'white'},
+                        fillColor: 'rgba(220, 53, 69, 0.3)',
+                        shape: 'squarepin',
+                        width: 16,
+                        showInLegend: true,
+                        onSeries: 'dataseries',
+                    },
+                    {
+                        type: 'flags',
+                        id: 'puts-bullish-flags',
+                        name: 'P',
+                        data: putsBullishFlags,
+                        color: '#fd7e14', // orange
+                        style: {color: 'white'},
+                        fillColor: 'rgba(253, 126, 20, 0.3)',
+                        shape: 'squarepin',
+                        width: 16,
+                        showInLegend: true,
+                        onSeries: 'dataseries',
+                    },
+                    {
+                        type: 'flags',
+                        id: 'calls-bearish-flags',
+                        name: 'CALLS Bearish',
+                        data: callsBearishFlags,
+                        color: '#6c757d', // gray
+                        style: {color: 'white'},
+                        fillColor: 'rgba(108, 117, 125, 0.3)',
+                        shape: 'squarepin',
+                        width: 16,
+                        showInLegend: true,
+                        onSeries: 'dataseries',
+
+                    },
+                    {
+                        type: 'flags',
+                        id: 'calls-bullish-flags',
+                        name: 'CALLS Bullish',
+                        data: callsBullishFlags,
+                        color: '#28a745', // green
+                        style: {color: 'white'},
+                        fillColor: 'rgba(40, 167, 69, 0.3)',
+                        shape: 'squarepin',
+                        width: 16,
+                        showInLegend: true,
+                        onSeries: 'dataseries',
+                    }
+                ],
+                credits: {
+                    enabled: false
+                },
+                responsive: {
+                    rules: [{
+                        condition: {
+                            maxWidth: 500
+                        },
+                        chartOptions: {
+                            yAxis: [{
+                                labels: {
+                                    align: 'right',
+                                    x: -5
+                                }
+                            }, {
+                                labels: {
+                                    align: 'right',
+                                    x: -5
+                                }
+                            }]
+                        }
+                    }]
+                }
+            });
+
+            // Handle page visibility changes to manage SSE connection
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible') {
+                    // Page is visible again - only reconnect if the connection was lost
+                    if (!source || source.readyState !== 1) {
+                        // Reconnect if needed
+                        initSSEConnection();
+                    } else {
+                        // Just update the status to confirm we're still connected
+                        updateStatus(`Connected - Streaming ${currentTicker} data`);
+                    }
+                }
+                // No action when page is hidden - connection remains active
+            });
+
+            // Handle page unload to clean up SSE connection
+            window.addEventListener('beforeunload', function() {
+                if (source) {
+                    // console.log('Page unloading, closing SSE connection');
+                    closeSseConnection();
+                }
+            });
+
+
+            // Force a reflow after a short delay to ensure proper sizing
+            setTimeout(function() {
+                if (chart) {
+                    chart.reflow();
+                }
+            }, 100);
+        } catch (error) {
+            console.error("Error creating chart:", error);
+            document.getElementById('container').innerHTML = `
+                <div style="color: white; text-align: center; padding: 20px;">
+                    Error creating chart: ${error.message}<br>
+                    Please check the console for more details.
+                </div>
+            `;
+        }
+    }
+
+    function initThemeToggle() {
+          console.log("Initializing theme toggle");
+          const themeToggle = document.getElementById('theme-toggle');
+
+          if (!themeToggle) {
+            console.error('Theme toggle element not found');
+            return;
+          }
+
+          // Function to toggle theme
+          function toggleTheme(isDark) {
+            console.log('Toggling theme to', isDark ? 'dark' : 'light');
+
+            // Apply class to chart container
+            const chartContainer = document.getElementById('container');
+            if (chartContainer) {
+              // Remove any existing theme classes
+              chartContainer.classList.remove('highcharts-dark', 'highcharts-light');
+              // Add the appropriate theme class
+              chartContainer.classList.add(isDark ? 'highcharts-dark' : 'highcharts-light');
+            }
+
+            // Apply dark mode class to body for page styling
+            document.body.classList.toggle('dark-mode', isDark);
+
+            // Save preference
+            localStorage.setItem('darkMode', isDark);
+
+            // Redraw chart if it exists
+            if (window.chart) {
+              window.chart.redraw();
+            }
+          }
+
+          // Set initial state based on localStorage or system preference
+          let initialDarkMode = localStorage.getItem('darkMode') === 'true';
+
+          // If no preference is stored, check for system preference
+          if (localStorage.getItem('darkMode') === null) {
+            initialDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          }
+
+          // Set the toggle switch to match initial state
+          themeToggle.checked = initialDarkMode;
+
+          // Apply initial theme
+          toggleTheme(initialDarkMode);
+
+          // Add event listener for theme toggle
+          themeToggle.addEventListener('change', function() {
+            toggleTheme(this.checked);
+          });
+        }
+
+    // Start the app
+    initSelectors();
+
+    // Initialize SSE connection once page is loaded
+    initSSEConnection();
+
+    // Initialize theme toggle
+    initThemeToggle();
+
+});
+</script>
+
+
+<!--{% endblock %}-->
+<!--THIS IS THE END OF THE PAGE CONTENT. BELOW IS THE REST OF THE TEMPLATE FILE THAT I IMPORT.-->
+<!--  ###########################################################################################-->
+
+
+<!--  ###############################################################################################-->
+<!--  THIS IS THE BOTTOM PART OF THE TEMPLATE FILE. -->
+<!--{% endblock %}-->
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.12.9/dist/umd/popper.min.js"
+        integrity=
+                "sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q"
+        crossorigin="anonymous">
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-C6RzsynM9kWDrMNeT87bh95OGNyZPhcTNXj1NW7RuBCsyN/o0jlpcV8Qyq46cDfL"
+        crossorigin="anonymous"></script>
+
+</script>
+</body>
+</html>
+<!--THIS IS THE END OF THE TEMPLATE FILE.-->
